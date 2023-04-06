@@ -53,7 +53,8 @@ def build_track(open_saved: bool = False):
     pygame.quit()
 
 
-def main(load_weights: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False, ai_count: int = 10, approx_intersect: bool = False):
+def main(load_weights: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
+         ai_count: int = 10, auto_next_iter: bool = False):
     
     pygame.init()
 
@@ -64,7 +65,7 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
     player_car = Car.PlayerCar(camera_option == MainOptions.PLAYER)
     player_car.set_track_data(track)
 
-    ai_cars = [Car.AICar(approx_intersect) for _ in range(ai_count)]
+    ai_cars = [Car.AICar() for _ in range(ai_count)]
     if not load_weights:
         for car in ai_cars:
             car.set_track_data(track)
@@ -104,7 +105,7 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
                         f.write('\n'.join(str(car.nn) for car in sorted(ai_cars, key=lambda c: c.get_fitness(), reverse=True)[:2]))
 
         # next iteration
-        if all(car.out_of_track for car in ai_cars) or acc_time > 120:
+        if auto_next_iter and (all(car.out_of_track for car in ai_cars) or acc_time > 120):
             next_iteration()
             acc_time = 0
 
@@ -148,12 +149,12 @@ class MainOptions:
     FREE_CAM = 2
     
     def __init__(self, run_build_track: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
-                 ai_count: int = 10, approx_intersect: bool = True):
+                 ai_count: int = 10, auto_next_iter: bool = False):
         if run_build_track:
             build_track()
         else:
-            main(True, camera_option, select_count, fixed_frame, ai_count, approx_intersect)
+            main(False, camera_option, select_count, fixed_frame, ai_count, auto_next_iter)
 
 
 if __name__ == "__main__":
-    MainOptions(False, MainOptions.FOLLOW_AI, 2, False, 10, False)
+    MainOptions(False, MainOptions.FOLLOW_AI, 2, False, 20, False)

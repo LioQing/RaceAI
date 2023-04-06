@@ -1,4 +1,5 @@
 ﻿import numpy as np
+import shapely
 
 from CarNeuralNetwork import CarNeuralNetwork, InputVector
 from Track import Track
@@ -9,6 +10,11 @@ import math
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
 from shapely.geometry.polygon import LineString
+from shapely.geometry.polygon import LinearRing
+
+
+def lerp(a, b, t):
+    return a + (b - a) * t
 
 
 class Input:
@@ -21,7 +27,7 @@ class Car(Transformable):
     HEIGHT = 32
     WIDTH = 24
 
-    def __init__(self, x: float, y: float, rot: float, max_speed: float, turn_speed: float):
+    def __init__(self, x: float = 0, y: float = 0, rot: float = 0, max_speed: float = 400, turn_speed: float = 2):
         self.speed = 0.0
         self.acceleration = 0.0
         self.max_speed = max_speed
@@ -114,9 +120,121 @@ class Car(Transformable):
             pygame.draw.polygon(screen, pygame.Color(255, 0, 0), polygon, 2)
 
 
+class AICar(Car):
+    SENSOR_DIST = 500
+
+    def __init__(self):
+        super().__init__()
+        self.forward = 0
+        self.turn = 0
+
+        # sensor at 0, 45, 90, 135, 180 degrees
+        self.sensors = [self.SENSOR_DIST] * 5
+
+        self.nn = CarNeuralNetwork()
+        self.out_of_track = False
+        self.outputs = [0.0, 0.0]
+
+    def set_track_data(self, track: Track):
+        self.forward = 0
+        self.turn = 0
+
+        # sensor at 0, 45, 90, 135, 180 degrees
+        self.sensors = [self.SENSOR_DIST] * 5
+
+        self.out_of_track = False
+        super().set_track_data(track)
+
+    def update(self, dt: float, track: Track):
+        def line_intersection(line1_start, line1_end, line2_start, line2_end) -> bool:
+            def ccw(A, B, C):
+                return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
+
+            return ccw(line1_start, line2_start, line2_end) != ccw(line1_end, line2_start, line2_end) \
+                and ccw(line1_start, line1_end, line2_start) != ccw(line1_start, line1_end, line2_end)
+
+        # update sensors
+        self.sensors = [self.SENSOR_DIST] * 5
+        self_pos = Point(self.x, self.y)
+        track_edges = LinearRing(track.polygon)
+        for i in range(len(self.sensors)):
+            angle = -self.rot + math.radians(180 + i * 45)
+            sensor_end = Point(self.x + math.cos(angle) * self.SENSOR_DIST, self.y + math.sin(angle) * self.SENSOR_DIST)
+            
+            def intersection_length():
+                dist = None
+                end = sensor_end
+                intersection = track_edges.intersection(LineString([self_pos, end]))
+
+                if intersection.is_empty:
+                    return dist
+
+                dist = intersection.distance(self_pos)
+                if self.SENSOR_DIST - dist > 1:
+                    return dist
+
+                return None
+
+            l = intersection_length()
+
+            if l is None:
+                continue
+
+            self.sensors[i] = l
+            
+        super().update(dt, track)
+
+    def draw(self, screen: pygame.Surface, color: pygame.Color, camera: Camera):
+        super().draw(screen, color, camera)
+
+        # draw sensors lines
+        for i in range(len(self.sensors)):
+            if self.sensors[i] == float('inf'):
+                continue
+            angle = -self.rot + math.radians(180 + i * 45)
+            line = (
+                (self.x, self.y),
+                (self.x + math.cos(angle) * self.sensors[i], self.y + math.sin(angle) * self.sensors[i]))
+            pygame.draw.line(screen, pygame.Color(255, 0, 0), camera.get_coord(*line[0]), camera.get_coord(*line[1]))
+
+    def _get_input(self) -> Input:
+        self.outputs = self.nn.activate(InputVector(
+            self.x / 500, self.y / 500, self.rot / (2 * math.pi),
+            self.speed / self.max_speed, self.out_of_track, [s / self.SENSOR_DIST for s in self.sensors])
+        )
+
+        forward_input = 0
+        turn_input = 0
+
+        if self.outputs[0] > 0.7:
+            forward_input += 1
+        if self.outputs[0] < 0.3:
+            forward_input -= 1
+
+        if forward_input == 0:
+            self.forward = 0
+        else:
+            self.forward = forward_input
+
+        if self.outputs[1] > 0.7:
+            turn_input -= 1
+        if self.outputs[1] < 0.3:
+            turn_input += 1
+
+        self.turn = lerp(self.turn, turn_input, 0.2)
+
+        self.forward = max(-1, min(1, self.forward))
+        self.turn = max(-1, min(1, self.turn))
+
+        return Input(self.forward, self.turn)
+
+    def get_fitness(self):
+        return self.progress / self.total_progress
+
+
 class PlayerCar(Car):
     def __init__(self, enabled: bool = True):
-        super().__init__(0, 0, 0, 400, 2)
+        super().__init__(0, 0, 0, 400)
         self.enabled = enabled
         self.forward = 0
         self.turn = 0
@@ -154,124 +272,6 @@ class PlayerCar(Car):
         return Input(self.forward, self.turn)
 
 
-class AICar(Car):
-    SENSOR_DIST = 500
-
-    def __init__(self, approx_intersect: bool = True):
-        super().__init__(0, 0, 0, 400, 2)
-        self.forward = 0
-        self.turn = 0
-
-        # sensor at 0, 45, 90, 135, 180 degrees
-        self.sensors = [self.SENSOR_DIST] * 5
-
-        self.nn = CarNeuralNetwork()
-        self.out_of_track = False
-        self.approx_intersect = approx_intersect
-
-    def set_track_data(self, track: Track):
-        self.forward = 0
-        self.turn = 0
-
-        # sensor at 0, 45, 90, 135, 180 degrees
-        self.sensors = [self.SENSOR_DIST] * 5
-
-        self.out_of_track = False
-        super().set_track_data(track)
-
-    def update(self, dt: float, track: Track):
-        def line_intersection(line1_start, line1_end, line2_start, line2_end) -> bool:
-            def ccw(A, B, C):
-                return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
-
-            return ccw(line1_start, line2_start, line2_end) != ccw(line1_end, line2_start, line2_end) \
-                and ccw(line1_start, line1_end, line2_start) != ccw(line1_start, line1_end, line2_end)
-
-        # update sensors
-        self.sensors = [self.SENSOR_DIST] * 5
-        for i in range(len(self.sensors)):
-            angle = -self.rot + math.radians(180 + i * 45)
-            sensor_end = (self.x + math.cos(angle) * self.SENSOR_DIST, self.y + math.sin(angle) * self.SENSOR_DIST)
-            for l1, l2 in zip(track.polygon,
-                              track.polygon[1:] + [track.polygon[0]]):
-                dist = (self.x - l1[0]) ** 2 + (self.y - l1[1]) ** 2
-
-                if dist > self.SENSOR_DIST ** 2:
-                    continue
-
-                intersection_apprx = None
-                intersection = None
-                if self.approx_intersect:
-                    intersection_apprx = line_intersection(
-                        (self.x, self.y),
-                        sensor_end,
-                        l1, l2
-                    )
-                else:
-                    A = np.array([[self.x, self.y], [sensor_end[0], sensor_end[1]]])
-                    B = np.array([[l1[0], l1[1]], [l2[0], l2[1]]])
-                    t, s = np.linalg.solve(np.array([A[1] - A[0], B[0] - B[1]]).T, B[0] - A[0])
-                    intersection: np.ndarray = (1 - t) * A[0] + t * A[1] if 0 <= t <= 1 and 0 <= s <= 1 else None
-
-                if self.approx_intersect:
-                    if intersection_apprx and dist < self.sensors[i] ** 2:
-                        self.sensors[i] = math.sqrt(dist)
-                else:
-                    if intersection is not None and dist < self.sensors[i] ** 2:
-                        self.sensors[i] = Point(intersection[0], intersection[1]).distance(Point(self.x, self.y))
-
-        super().update(dt, track)
-
-    def draw(self, screen: pygame.Surface, color: pygame.Color, camera: Camera):
-        super().draw(screen, color, camera)
-
-        # draw sensors lines
-        for i in range(len(self.sensors)):
-            if self.sensors[i] == float('inf'):
-                continue
-            angle = -self.rot + math.radians(180 + i * 45)
-            line = (
-            (self.x, self.y), (self.x + math.cos(angle) * self.sensors[i], self.y + math.sin(angle) * self.sensors[i]))
-            pygame.draw.line(screen, pygame.Color(255, 0, 0), camera.get_coord(*line[0]), camera.get_coord(*line[1]))
-
-    def _get_input(self) -> Input:
-        outputs = self.nn.activate(InputVector(
-            self.x / 500, self.y / 500, self.rot / (2 * math.pi),
-            self.speed / self.max_speed, self.out_of_track, [s / self.SENSOR_DIST for s in self.sensors])
-        )
-
-        forward_input = 0
-        turn_input = 0
-
-        def lerp(a, b, t):
-            return a + (b - a) * t
-
-        if outputs[0] > 0.7:
-            forward_input += 1
-        if outputs[0] < 0.3:
-            forward_input -= 1
-
-        if forward_input == 0:
-            self.forward = 0
-        else:
-            self.forward = forward_input
-
-        if outputs[1] > 0.7:
-            turn_input -= 1
-        if outputs[1] < 0.3:
-            turn_input += 1
-
-        self.turn = lerp(self.turn, turn_input, 0.2)
-
-        self.forward = max(-1, min(1, self.forward))
-        self.turn = max(-1, min(1, self.turn))
-
-        return Input(self.forward, self.turn)
-
-    def get_fitness(self):
-        return self.progress / self.total_progress
-
-
 def selection_and_reproduce(select_count: int, population: list[AICar]):
     population.sort(key=lambda x: x.get_fitness(), reverse=True)
     for i in range(select_count):
@@ -286,3 +286,4 @@ def selection_and_reproduce(select_count: int, population: list[AICar]):
 
 def follow_best_ai_car(population: list[AICar], camera: Camera):
     camera.car = max(population, key=lambda x: x.get_fitness())
+    print(camera.car.outputs)
