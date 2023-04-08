@@ -38,7 +38,7 @@ def build_track(open_saved: bool = False):
                 editor.on_mouse_moved()
             elif event.type == pygame.KEYDOWN:
                 editor.on_key_pressed(event.key)
-                
+
                 if event.key == pygame.K_RETURN:
                     with open('track.txt', 'w') as f:
                         f.write(editor.curve.serialize())
@@ -55,10 +55,10 @@ def build_track(open_saved: bool = False):
 
 def main(load_weights: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
          ai_count: int = 10, auto_next_iter: bool = False):
-    
+
     pygame.init()
 
-    screen = pygame.display.set_mode([800, 600])
+    screen = pygame.display.set_mode((500, 500), pygame.RESIZABLE)
 
     # init entities
     track = Track.Track('track.txt', 100)
@@ -75,23 +75,22 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
             for i, car in enumerate(ai_cars):
                 car.set_track_data(track)
                 car.nn.from_string(weights[i % 2])
-                car.nn.mutate(0.1, 0.1)
+                if i > 2:
+                    car.nn.mutate(0.01, 0.05, None)
 
     camera = Camera.Camera(screen, player_car if camera_option == MainOptions.PLAYER else None)
 
     running = True
     start_time = time.time()
-    delta_time: float = 0
     fixed_dt = 0.032
-    time_scale: float = 1
     acc_time: float = 0
-    
+
     def next_iteration():
         Car.selection_and_reproduce(select_count, ai_cars)
         player_car.set_track_data(track)
-        for car in ai_cars:
-            car.set_track_data(track)
-    
+        for c in ai_cars:
+            c.set_track_data(track)
+
     while running:
         # events
         for event in pygame.event.get():
@@ -105,7 +104,7 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
                         f.write('\n'.join(str(car.nn) for car in sorted(ai_cars, key=lambda c: c.get_fitness(), reverse=True)[:2]))
 
         # next iteration
-        if auto_next_iter and (all(car.out_of_track for car in ai_cars) or acc_time > 120):
+        if auto_next_iter and (all(car.out_of_track for car in ai_cars) or acc_time > 120 or any(car.get_fitness() > 0.999 for car in ai_cars)):
             next_iteration()
             acc_time = 0
 
@@ -131,12 +130,11 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
         # delta time
         end_time = time.time()
         delta_time = end_time - start_time
-        
+
         if fixed_frame and delta_time < fixed_dt:
             time.sleep(fixed_dt - delta_time)
 
         end_time = time.time()
-        delta_time = (end_time - start_time) * time_scale
         acc_time += fixed_dt
         start_time = end_time
 
@@ -147,14 +145,17 @@ class MainOptions:
     PLAYER = 0
     FOLLOW_AI = 1
     FREE_CAM = 2
-    
+
     def __init__(self, run_build_track: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
                  ai_count: int = 10, auto_next_iter: bool = False):
         if run_build_track:
-            build_track()
+            build_track(False)
         else:
-            main(False, camera_option, select_count, fixed_frame, ai_count, auto_next_iter)
+            main(True, camera_option, select_count, fixed_frame, ai_count, auto_next_iter)
 
 
 if __name__ == "__main__":
-    MainOptions(False, MainOptions.FOLLOW_AI, 2, False, 20, False)
+    # escape - save currently best fitness car's weights
+    # enter - next iteration
+    
+    MainOptions(True, MainOptions.PLAYER, 0, True, 1, False)

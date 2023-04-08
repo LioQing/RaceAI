@@ -1,4 +1,6 @@
-﻿import numpy as np
+﻿from copy import deepcopy
+
+import numpy as np
 import shapely
 
 from CarNeuralNetwork import CarNeuralNetwork, InputVector
@@ -122,6 +124,7 @@ class Car(Transformable):
 
 class AICar(Car):
     SENSOR_DIST = 500
+    SENSOR_COUNT = 7
 
     def __init__(self):
         super().__init__()
@@ -129,9 +132,9 @@ class AICar(Car):
         self.turn = 0
 
         # sensor at 0, 45, 90, 135, 180 degrees
-        self.sensors = [self.SENSOR_DIST] * 5
+        self.sensors = [self.SENSOR_DIST] * self.SENSOR_COUNT
 
-        self.nn = CarNeuralNetwork()
+        self.nn = CarNeuralNetwork(None)
         self.out_of_track = False
         self.outputs = [0.0, 0.0]
 
@@ -140,48 +143,27 @@ class AICar(Car):
         self.turn = 0
 
         # sensor at 0, 45, 90, 135, 180 degrees
-        self.sensors = [self.SENSOR_DIST] * 5
+        self.sensors = [self.SENSOR_DIST] * self.SENSOR_COUNT
 
         self.out_of_track = False
         super().set_track_data(track)
 
     def update(self, dt: float, track: Track):
-        def line_intersection(line1_start, line1_end, line2_start, line2_end) -> bool:
-            def ccw(A, B, C):
-                return (C[1] - A[1]) * (B[0] - A[0]) > (B[1] - A[1]) * (C[0] - A[0])
-
-            return ccw(line1_start, line2_start, line2_end) != ccw(line1_end, line2_start, line2_end) \
-                and ccw(line1_start, line1_end, line2_start) != ccw(line1_start, line1_end, line2_end)
-
         # update sensors
-        self.sensors = [self.SENSOR_DIST] * 5
+        self.sensors = [self.SENSOR_DIST] * self.SENSOR_COUNT
         self_pos = Point(self.x, self.y)
         track_edges = LinearRing(track.polygon)
         for i in range(len(self.sensors)):
-            angle = -self.rot + math.radians(180 + i * 45)
+            angle = -self.rot + math.radians(180 + i * 180 / (self.SENSOR_COUNT - 1))
             sensor_end = Point(self.x + math.cos(angle) * self.SENSOR_DIST, self.y + math.sin(angle) * self.SENSOR_DIST)
-            
-            def intersection_length():
-                dist = None
-                end = sensor_end
-                intersection = track_edges.intersection(LineString([self_pos, end]))
 
-                if intersection.is_empty:
-                    return dist
+            intersection = track_edges.intersection(LineString([self_pos, sensor_end]))
 
-                dist = intersection.distance(self_pos)
-                if self.SENSOR_DIST - dist > 1:
-                    return dist
-
-                return None
-
-            l = intersection_length()
-
-            if l is None:
+            if intersection.is_empty:
                 continue
 
-            self.sensors[i] = l
-            
+            self.sensors[i] = intersection.distance(self_pos)
+
         super().update(dt, track)
 
     def draw(self, screen: pygame.Surface, color: pygame.Color, camera: Camera):
@@ -191,7 +173,7 @@ class AICar(Car):
         for i in range(len(self.sensors)):
             if self.sensors[i] == float('inf'):
                 continue
-            angle = -self.rot + math.radians(180 + i * 45)
+            angle = -self.rot + math.radians(180 + i * 180 / (self.SENSOR_COUNT - 1))
             line = (
                 (self.x, self.y),
                 (self.x + math.cos(angle) * self.sensors[i], self.y + math.sin(angle) * self.sensors[i]))
@@ -199,8 +181,8 @@ class AICar(Car):
 
     def _get_input(self) -> Input:
         self.outputs = self.nn.activate(InputVector(
-            self.x / 500, self.y / 500, self.rot / (2 * math.pi),
-            self.speed / self.max_speed, self.out_of_track, [s / self.SENSOR_DIST for s in self.sensors])
+            self.rot / (2 * math.pi), self.speed / self.max_speed,
+            [s / self.SENSOR_DIST for s in self.sensors])
         )
 
         forward_input = 0
@@ -273,17 +255,16 @@ class PlayerCar(Car):
 
 
 def selection_and_reproduce(select_count: int, population: list[AICar]):
+    if select_count == 0:
+        return
+    
     population.sort(key=lambda x: x.get_fitness(), reverse=True)
-    for i in range(select_count):
-        population[i].nn.mutate(0.2, (1.5 - population[i].get_fitness()) * 0.2)
-
     for i in range(select_count, len(population)):
-        population[i].nn.weights = population[i % select_count].nn.weights
-        population[i].nn.weights2 = population[i % select_count].nn.weights2
-        population[i].nn.weights3 = population[i % select_count].nn.weights3
-        population[i].nn.mutate(0.4, (1.5 - population[i % select_count].get_fitness()) * 0.5)
+        population[i].nn = deepcopy(population[i % select_count].nn)
+        
+        # change if needed
+        population[i].nn.mutate(0.1, 0.1, population[i].get_fitness())
 
 
 def follow_best_ai_car(population: list[AICar], camera: Camera):
     camera.car = max(population, key=lambda x: x.get_fitness())
-    print(camera.car.outputs)
