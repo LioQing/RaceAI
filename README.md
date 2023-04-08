@@ -4,6 +4,10 @@ A personal project to create a self-driving car using evolutionary machin learni
 
 ## Video
 
+
+https://user-images.githubusercontent.com/46854695/230703415-a9d00dc5-63f5-42a6-ab50-9c155a94f627.mp4
+
+
 ## Features
 
 - A track editor
