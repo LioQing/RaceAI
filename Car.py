@@ -257,11 +257,11 @@ class PlayerCar(Car):
 def selection_and_reproduce(select_count: int, population: list[AICar]):
     if select_count == 0:
         return
-    
+
     population.sort(key=lambda x: x.get_fitness(), reverse=True)
     for i in range(select_count, len(population)):
         population[i].nn = deepcopy(population[i % select_count].nn)
-        
+
         # change if needed
         population[i].nn.mutate(0.1, 0.1, population[i].get_fitness())
 

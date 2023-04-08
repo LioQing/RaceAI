@@ -54,7 +54,7 @@ def build_track(open_saved: bool = False):
 
 
 def main(load_weights: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
-         ai_count: int = 10, auto_next_iter: bool = False):
+         ai_count: int = 10, auto_next_iter: bool = False, allow_save_weight: bool = False):
 
     pygame.init()
 
@@ -99,7 +99,7 @@ def main(load_weights: bool = False, camera_option: int = 0, select_count: int =
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_RETURN:
                     next_iteration()
-                elif event.key == pygame.K_ESCAPE:
+                elif event.key == pygame.K_ESCAPE and allow_save_weight:
                     with open('weights.txt', 'w') as f:
                         f.write('\n'.join(str(car.nn) for car in sorted(ai_cars, key=lambda c: c.get_fitness(), reverse=True)[:2]))
 
@@ -147,15 +147,15 @@ class MainOptions:
     FREE_CAM = 2
 
     def __init__(self, run_build_track: bool = False, camera_option: int = 0, select_count: int = 2, fixed_frame: bool = False,
-                 ai_count: int = 10, auto_next_iter: bool = False):
+                 ai_count: int = 10, auto_next_iter: bool = False, allow_save_weight: bool = False):
         if run_build_track:
             build_track(False)
         else:
-            main(True, camera_option, select_count, fixed_frame, ai_count, auto_next_iter)
+            main(True, camera_option, select_count, fixed_frame, ai_count, auto_next_iter, allow_save_weight)
 
 
 if __name__ == "__main__":
     # escape - save currently best fitness car's weights
     # enter - next iteration
-    
-    MainOptions(True, MainOptions.PLAYER, 0, True, 1, False)
+
+    MainOptions(True, MainOptions.PLAYER, 0, True, 4, False)
