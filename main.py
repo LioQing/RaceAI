@@ -158,4 +158,4 @@ if __name__ == "__main__":
     # escape - save currently best fitness car's weights
     # enter - next iteration
 
-    MainOptions(True, MainOptions.PLAYER, 0, True, 4, False)
+    MainOptions(False, MainOptions.PLAYER, 0, True, 4, False)
