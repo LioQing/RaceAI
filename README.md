@@ -2,6 +2,8 @@
 
 A personal project to create a self-driving car using evolutionary machin learning and neural networks.
 
+⚠️⚠️⚠️ This repository has been archived, further development will continue in [LioQing/simple-rl-driver](https://github.com/lioqing/simple-rl-driver) ⚠️⚠️⚠️
+
 ## Video
 
 
